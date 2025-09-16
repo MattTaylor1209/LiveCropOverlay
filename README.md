@@ -29,6 +29,7 @@ git clone https://github.com/yourusername/LiveCropOverlay.git
 cd LiveCropOverlay
 open LiveCropOverlay.xcodeproj
 # Build & run in Xcode with ⌘R
+```
 
 ### Permissions
 
