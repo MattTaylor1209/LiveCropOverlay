@@ -38,11 +38,11 @@ Grant via: System Settings → Privacy & Security → Screen Recording → enabl
 
 ## Usage
 
-	1.	Launch the app.
-	2.	Click Refresh Windows and pick a window from the dropdown.
-	3.	Click Start Overlay to open the floating PiP.
-	4.	(Optional) Edit crop → draw/resize the box → Confirm or Cancel.
-	5.	Reset Crop at any time to show the full window.
-	6.	Use Opacity and Scale to adjust appearance.
-	7.	Toggle Click-through to let clicks pass to apps underneath.
-	8.	Stop Overlay to close and reset; select a different window and start again.
+1.	Launch the app.
+2.	Click Refresh Windows and pick a window from the dropdown.
+3.	Click Start Overlay to open the floating PiP.
+4.	(Optional) Edit crop → draw/resize the box → Confirm or Cancel.
+5.	Reset Crop at any time to show the full window.
+6.	Use Opacity and Scale to adjust appearance.
+7.	Toggle Click-through to let clicks pass to apps underneath.
+8.	Stop Overlay to close and reset; select a different window and start again.
