@@ -1,37 +1,34 @@
 import SwiftUI
 
 /// Interactive, drag-to-crop overlay drawn on top of a displayed image.
-/// - You pass in how the source image is being displayed (size + origin),
-///   and we keep the crop rect in *source pixel* coordinates via `cropInSourcePx`.
+/// Keeps crop in *source pixels* via `cropInSourcePx`.
 struct CropOverlay: View {
-    // Geometry of the displayed (scaled) image, in the parent view's coordinate space.
+    // Geometry of the displayed (scaled) image, in the parent view's space.
     let displayedImageSize: CGSize
     let displayedImageOrigin: CGPoint
-
-    // Size of the original source image in pixels (e.g., CGImage.width/height)
+    // Original source image size in pixels
     let sourceImageSize: CGSize
 
-    /// Crop rect expressed in *source pixel* coordinates. `nil` = full image / no crop.
+    /// Crop rect in source pixels. `nil` = full image / no crop.
     @Binding var cropInSourcePx: CGRect?
-
-    /// When true, shows handles and allows user interaction.
+    /// When true, shows handles and allows interaction.
     @Binding var isEditing: Bool
 
     // Working rect in *display* coordinates while editing.
     @State private var displayRect: CGRect? = nil
 
-    // Handle visuals
-    private let handleSide: CGFloat = 12
-    private let minSize: CGFloat = 10
+    // UI tuning
+    private let handleSide: CGFloat = 18
+    private let minSize: CGFloat = 12
 
     var body: some View {
         ZStack {
-            // Darken outside the current selection (when we know it)
+            // Darken outside area when we have a rect
             if let r = currentDisplayRect {
                 let imgRect = imageBounds
                 Path { p in
-                    p.addRect(imgRect)   // outer
-                    p.addRect(r)         // inner hole
+                    p.addRect(imgRect)
+                    p.addRect(r)
                 }
                 .fill(Color.black.opacity(0.35), style: FillStyle(eoFill: true))
                 .allowsHitTesting(false)
@@ -47,57 +44,81 @@ struct CropOverlay: View {
             }
 
             if isEditing {
-                // Create gesture: when no rect yet, drag to create one
-                if currentDisplayRect == nil {
+                if let r = displayRect {
+                    // Move gesture (drag inside selection)
                     Rectangle()
                         .fill(Color.clear)
-                        .contentShape(Rectangle())
-                        .gesture(createGesture())
-                } else {
-                    // Move gesture: drag inside to move selection
-                    Rectangle()
-                        .fill(Color.clear)
-                        .frame(width: currentDisplayRect!.width, height: currentDisplayRect!.height)
-                        .position(x: currentDisplayRect!.midX, y: currentDisplayRect!.midY)
+                        .frame(width: r.width, height: r.height)
+                        .position(x: r.midX, y: r.midY)
                         .contentShape(Rectangle())
                         .gesture(moveGesture())
 
                     // 8 resize handles
                     ForEach(Handle.allCases, id: \.self) { handle in
-                        let p = handlePoint(for: handle, rect: currentDisplayRect!)
+                        let p = handlePoint(for: handle, rect: r)
                         RoundedRectangle(cornerRadius: 3)
                             .stroke(.white, lineWidth: 1)
-                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.9)))
+                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(0.95)))
                             .frame(width: handleSide, height: handleSide)
                             .position(p)
                             .gesture(resizeGesture(for: handle))
                     }
+                } else {
+                    // ⬅️ IMPORTANT: Full-size transparent catcher so drags always register
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .gesture(createGesture())
                 }
             }
         }
         .onAppear { syncDisplayFromSource() }
         .onChange(of: cropInSourcePx) { _, _ in syncDisplayFromSource() }
         .onChange(of: isEditing) { _, editing in
-            if !editing { commitToSource() }
+            if editing {
+                // entering edit: sync display rect from current crop
+                displayRect = sourceToDisplay(cropInSourcePx)
+            } else {
+                // leaving edit: commit and stop drawing the box
+                commitToSource()
+                displayRect = nil
+            }
         }
     }
 
     // MARK: - Gestures
 
     private func createGesture() -> some Gesture {
-        DragGesture(minimumDistance: 3)
+        // Start immediately (click or drag)
+        DragGesture(minimumDistance: 0)
             .onChanged { value in
                 let start = clampPoint(value.startLocation)
                 let cur   = clampPoint(value.location)
                 displayRect = normalizedRect(from: start, to: cur)
             }
-            .onEnded { _ in
+            .onEnded { value in
+                // If user only clicked, create a sensible starter box
+                let start = clampPoint(value.startLocation)
+                var r = displayRect ?? CGRect(origin: start, size: .zero)
+                let tiny = r.width < 8 || r.height < 8
+                if tiny {
+                    let defaultW = max(minSize * 8, displayedImageSize.width  * 0.25)
+                    let defaultH = max(minSize * 6, displayedImageSize.height * 0.20)
+                    r = CGRect(
+                        x: min(max(start.x, imageBounds.minX), imageBounds.maxX - defaultW),
+                        y: min(max(start.y, imageBounds.minY), imageBounds.maxY - defaultH),
+                        width: defaultW,
+                        height: defaultH
+                    )
+                }
+                r = clampRect(r)
+                displayRect = r
                 commitToSource()
             }
     }
 
     private func moveGesture() -> some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 0)
             .onChanged { value in
                 guard var r = displayRect else { return }
                 r.origin.x += value.translation.width
@@ -109,7 +130,7 @@ struct CropOverlay: View {
     }
 
     private func resizeGesture(for handle: Handle) -> some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 0)
             .onChanged { value in
                 guard var r = displayRect else { return }
                 let p = clampPoint(value.location)
@@ -165,16 +186,10 @@ struct CropOverlay: View {
         CGRect(origin: displayedImageOrigin, size: displayedImageSize)
     }
 
-    /// The rect we currently show (display coords); falls back to full image if nil and not editing.
     private var currentDisplayRect: CGRect? {
-        if let r = displayRect {
-            return r
-        }
-        // If not editing and no crop set, we still show a border around the whole image.
-        if !isEditing, cropInSourcePx == nil {
-            return imageBounds
-        }
-        return nil
+        // Only show the rectangle while editing crop
+        guard isEditing else { return nil }
+        return displayRect
     }
 
     private func handlePoint(for h: Handle, rect r: CGRect) -> CGPoint {
@@ -203,6 +218,8 @@ struct CropOverlay: View {
         if r.minY < b.minY { r.origin.y = b.minY }
         if r.maxX > b.maxX { r.size.width  = b.maxX - r.origin.x }
         if r.maxY > b.maxY { r.size.height = b.maxY - r.origin.y }
+        r.size.width  = max(r.size.width,  minSize)
+        r.size.height = max(r.size.height, minSize)
         return r
     }
 
@@ -213,32 +230,33 @@ struct CropOverlay: View {
                height: abs(a.y - b.y))
     }
 
-    // Mapping: source <-> display
+    // Mapping: source <-> display (Y flipped)
     private var scale: CGFloat {
-        // Uniform scale (image fitted preserving aspect)
         min(displayedImageSize.width / sourceImageSize.width,
             displayedImageSize.height / sourceImageSize.height)
     }
 
     private func sourceToDisplay(_ src: CGRect?) -> CGRect? {
         guard let src = src else { return nil }
-        let x = displayedImageOrigin.x + src.origin.x * scale
-        let y = displayedImageOrigin.y + src.origin.y * scale
-        return CGRect(x: x, y: y, width: src.width * scale, height: src.height * scale)
+        let dispX = displayedImageOrigin.x + src.origin.x * scale
+        let dispY = displayedImageOrigin.y
+            + (sourceImageSize.height - (src.origin.y + src.height)) * scale
+        return CGRect(x: dispX, y: dispY,
+                      width: src.width * scale, height: src.height * scale)
     }
 
     private func displayToSource(_ disp: CGRect) -> CGRect {
         let x = max(0, (disp.origin.x - displayedImageOrigin.x) / scale)
-        let y = max(0, (disp.origin.y - displayedImageOrigin.y) / scale)
+        let yTopFromDisplayTop = (disp.origin.y - displayedImageOrigin.y) / scale
+        let heightPx = disp.height / scale
+        let y = max(0, sourceImageSize.height - yTopFromDisplayTop - heightPx)
         let w = min(sourceImageSize.width  - x, disp.width  / scale)
-        let h = min(sourceImageSize.height - y, disp.height / scale)
-        // Round down to whole pixels to be safe for CGImage.cropping(to:)
+        let h = min(sourceImageSize.height - y, heightPx)
         return CGRect(x: floor(x), y: floor(y), width: floor(w), height: floor(h))
     }
 
     private func syncDisplayFromSource() {
         displayRect = sourceToDisplay(cropInSourcePx)
-        // If there is still no rect and we're not editing, leave it nil (we'll show full-image guides only)
     }
 
     private func commitToSource() {

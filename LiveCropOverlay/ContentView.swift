@@ -103,11 +103,20 @@ struct ContentView: View {
         // When entering crop edit mode, make the panel key so drag gestures work.
         .onChange(of: isEditingCrop) { _, editing in
             if editing {
+                // Make panel key so SwiftUI gestures receive drag events
                 overlayWindow?.orderFrontRegardless()
-                overlayWindow?.makeKeyAndOrderFront(nil)   // take focus so drags track
-                overlayWindow?.setClickThrough(false)      // must accept mouse while editing
+                overlayWindow?.makeKeyAndOrderFront(nil)
+
+                // VERY IMPORTANT: don't let the window treat drags as "move window"
+                overlayWindow?.isMovableByWindowBackground = false
+
+                // Must accept mouse while editing
+                overlayWindow?.setClickThrough(false)
             } else {
                 overlayWindow?.orderFrontRegardless()
+
+                // Restore your preferred behavior
+                overlayWindow?.isMovableByWindowBackground = true
                 overlayWindow?.setClickThrough(clickThrough)
             }
         }
