@@ -11,7 +11,10 @@ struct ContentView: View {
     @State private var overlayScale: Double = 1.0
     @State private var clickThrough = false
     @State private var showGuides = false
-    @State private var isEditingCrop = true  // start with crop editor ON
+    @State private var isEditingCrop = false
+
+    // Start/Stop state
+    @State private var isOverlayRunning = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -24,24 +27,20 @@ struct ContentView: View {
             Picker("Select a window:", selection: $model.selectedWindow) {
                 Text("— none —").tag(SCWindow?.none)
                 ForEach(model.windows, id: \.self) { w in
-                    let appName = w.owningApplication?.applicationName ?? "App"
-                    Text("\(appName) — \(w.title ?? "Untitled")").tag(SCWindow?.some(w))
+                    let app = w.owningApplication?.applicationName ?? "App"
+                    Text("\(app) — \(w.title ?? "Untitled")").tag(SCWindow?.some(w))
                 }
             }
             .onChange(of: model.selectedWindow) { _, newValue in
-                Task {
-                    if let w = newValue {
-                        await capture.start(window: w, scale: 1.0)
-                        ensureOverlay()   // create/show the floating window
-                    }
-                }
+                // If the overlay is running and you pick a different window, restart onto it.
+                guard isOverlayRunning, let w = newValue else { return }
+                Task { await restartOverlay(on: w) }
             }
 
             GroupBox("Overlay") {
                 HStack(spacing: 16) {
                     Toggle("Click-through", isOn: $clickThrough)
                         .onChange(of: clickThrough) { _, on in
-                            // Respect click-through only when NOT editing crop
                             if !isEditingCrop { overlayWindow?.setClickThrough(on) }
                         }
 
@@ -52,24 +51,34 @@ struct ContentView: View {
                     HStack(spacing: 8) {
                         Text("Opacity")
                         Slider(value: $overlayOpacity, in: 0.1...1.0)
-                            .frame(maxWidth: 160)
+                            .frame(maxWidth: 140)
                             .onChange(of: overlayOpacity) { _, v in overlayWindow?.setOpacity(v) }
                     }
 
                     HStack(spacing: 8) {
                         Text("Scale")
                         Slider(value: $overlayScale, in: 0.25...2.5)
-                            .frame(maxWidth: 160)
+                            .frame(maxWidth: 140)
                             .onChange(of: overlayScale) { _, _ in applyOverlaySize() }
                     }
 
                     Spacer()
-                    Button("Show/Focus Overlay") { ensureOverlay() }  // bring to front (non-key unless editing)
-                        .disabled(capture.latestImage == nil)
+
+                    // Start / Stop + Focus
+                    if isOverlayRunning {
+                        Button(role: .destructive, action: { Task { await stopOverlay() } }) {
+                            Text("Stop Overlay")
+                        }
+                        Button("Focus") { overlayWindow?.orderFrontRegardless() }
+                            .disabled(overlayWindow == nil)
+                    } else {
+                        Button("Start Overlay") { Task { await startOverlay() } }
+                            .disabled(model.selectedWindow == nil)
+                    }
                 }
             }
 
-            // Inline sanity-check preview (should show the live feed)
+            // Inline sanity-check preview (live feed)
             if let img = capture.latestImage {
                 Image(decorative: img, scale: 1.0, orientation: .up)
                     .resizable()
@@ -84,15 +93,15 @@ struct ContentView: View {
             }
 
             Spacer()
-            Text("Pick a window → Show/Focus Overlay. Toggle ‘Edit crop’, then drag on the floating window.")
+            Text("Pick a window → Start Overlay. Toggle ‘Edit crop’ to drag a crop on the floating window.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
         .padding(16)
         .task { await model.refreshShareableContent() }
-        .onDisappear { Task { await capture.stop() } }
+        .onDisappear { Task { await stopOverlay() } }
 
-        // Clear temporary tint and keep size sensible once frames arrive
+        // Clear the temp tint and keep size sane when the first frame arrives.
         .onChange(of: capture.latestImage) { _, img in
             if img != nil {
                 overlayWindow?.backgroundColor = .clear
@@ -100,26 +109,47 @@ struct ContentView: View {
             }
         }
 
-        // When entering crop edit mode, make the panel key so drag gestures work.
+        // While editing: make the panel key, accept mouse; otherwise restore your prefs.
         .onChange(of: isEditingCrop) { _, editing in
             if editing {
-                // Make panel key so SwiftUI gestures receive drag events
                 overlayWindow?.orderFrontRegardless()
                 overlayWindow?.makeKeyAndOrderFront(nil)
-
-                // VERY IMPORTANT: don't let the window treat drags as "move window"
                 overlayWindow?.isMovableByWindowBackground = false
-
-                // Must accept mouse while editing
                 overlayWindow?.setClickThrough(false)
             } else {
                 overlayWindow?.orderFrontRegardless()
-
-                // Restore your preferred behavior
                 overlayWindow?.isMovableByWindowBackground = true
                 overlayWindow?.setClickThrough(clickThrough)
             }
         }
+    }
+
+    // MARK: - Start / Stop / Restart
+
+    private func startOverlay() async {
+        guard let w = model.selectedWindow else { return }
+        await capture.start(window: w, scale: 1.0)
+        ensureOverlay()
+        isOverlayRunning = true
+    }
+
+    private func stopOverlay() async {
+        // Exit edit mode so gestures/flags reset
+        isEditingCrop = false
+
+        await capture.stop()
+        if let win = overlayWindow {
+            win.orderOut(nil)
+            win.close()
+        }
+        overlayWindow = nil
+        isOverlayRunning = false
+    }
+
+    private func restartOverlay(on window: SCWindow) async {
+        await capture.start(window: window, scale: 1.0)
+        ensureOverlay()
+        isOverlayRunning = true
     }
 
     // MARK: - Overlay management
@@ -128,7 +158,7 @@ struct ContentView: View {
         if overlayWindow == nil {
             let window = OverlayWindow()
 
-            // OverlayView observes `capture` directly, so it auto-updates.
+            // The overlay view observes `capture` directly.
             let hosting = NSHostingView(rootView:
                 OverlayView(
                     capture: capture,
@@ -147,15 +177,13 @@ struct ContentView: View {
             window.setOpacity(overlayOpacity)
             window.setClickThrough(isEditingCrop ? false : clickThrough)
 
-            // TEMP tint so you can see the panel before frames arrive
+            // TEMP tint so you can see it before frames arrive
             window.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.25)
             window.isOpaque = false
 
-            // Show (we only make it key when editing crop)
             window.orderFrontRegardless()
             overlayWindow = window
 
-            // Initial sizing
             applyOverlaySize()
         } else {
             overlayWindow?.orderFrontRegardless()
@@ -165,7 +193,6 @@ struct ContentView: View {
     /// Resize the floating panel while preserving aspect.
     private func applyOverlaySize() {
         guard let window = overlayWindow else { return }
-        // Use current (cropped) frame if available; otherwise fall back to a sensible base size.
         let baseW = Double(capture.latestImage?.width  ?? 640)
         let baseH = Double(capture.latestImage?.height ?? 360)
 
