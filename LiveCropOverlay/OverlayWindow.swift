@@ -1,21 +1,25 @@
 import AppKit
 import SwiftUI
 
-/// A borderless, always-on-top floating window for the live preview.
-/// This version purposely stays NON-KEY (won’t take focus).
+/// Floating overlay window. It can become key (to receive drag gestures)
+/// when we enter "Edit crop", and otherwise behaves like a normal floating panel.
 final class OverlayWindow: NSPanel {
+
+    // Allow this panel to become key so gestures work.
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
     init() {
-        // Non-activating panel so it never becomes key/main.
-        let style: NSWindow.StyleMask = [.borderless, .nonactivatingPanel]
+        // NOTE: drop `.nonactivatingPanel` so we can programmatically make it key.
+        let style: NSWindow.StyleMask = [.borderless]
         super.init(contentRect: NSRect(x: 240, y: 240, width: 480, height: 270),
                    styleMask: style,
                    backing: .buffered,
                    defer: false)
 
         isReleasedWhenClosed = false
-        level = .floating                         // stay above normal windows
-        collectionBehavior = [.canJoinAllSpaces,  // show on all Spaces
-                              .fullScreenAuxiliary]
+        level = .floating
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         backgroundColor = .clear
         isOpaque = false
         hasShadow = true
