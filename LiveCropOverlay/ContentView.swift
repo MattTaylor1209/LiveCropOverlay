@@ -11,7 +11,10 @@ struct ContentView: View {
     @State private var overlayScale: Double = 1.0
     @State private var clickThrough = false
     @State private var showGuides = false
+
+    // Edit/apply flow
     @State private var isEditingCrop = false
+    @State private var draftCrop: CGRect? = nil      // ← crop being edited (not applied yet)
 
     // Start/Stop state
     @State private var isOverlayRunning = false
@@ -32,32 +35,43 @@ struct ContentView: View {
                 }
             }
             .onChange(of: model.selectedWindow) { _, newValue in
-                // If overlay is running and you change the window, restart on the new one
                 guard isOverlayRunning, let w = newValue else { return }
                 Task { await restartOverlay(on: w) }
             }
 
             GroupBox("Overlay") {
-                HStack(spacing: 14) {
+                HStack(spacing: 12) {
                     Toggle("Click-through", isOn: $clickThrough)
                         .onChange(of: clickThrough) { _, on in
                             if !isEditingCrop { overlayWindow?.setClickThrough(on) }
                         }
 
                     Toggle("Show guides", isOn: $showGuides)
+
+                    // Edit toggle
                     Toggle("Edit crop", isOn: $isEditingCrop)
 
-                    // Reset crop button
-                    Button("Reset Crop") { resetCrop() }
-                        .disabled(capture.cropRect == nil)
+                    // Confirm / Cancel appear only while editing
+                    if isEditingCrop {
+                        Button("Confirm Crop") { applyDraftCrop() }
+                            .buttonStyle(.borderedProminent)
 
+                        Button("Cancel") {
+                            cancelDraftCrop()
+                        }
+                    } else {
+                        // Reset is available outside edit mode
+                        Button("Reset Crop") { resetCrop() }
+                            .disabled(capture.cropRect == nil)
+                    }
+
+                    // Opacity & Scale
                     HStack(spacing: 6) {
                         Text("Opacity")
                         Slider(value: $overlayOpacity, in: 0.1...1.0)
                             .frame(maxWidth: 140)
                             .onChange(of: overlayOpacity) { _, v in overlayWindow?.setOpacity(v) }
                     }
-
                     HStack(spacing: 6) {
                         Text("Scale")
                         Slider(value: $overlayScale, in: 0.25...2.5)
@@ -96,7 +110,7 @@ struct ContentView: View {
             }
 
             Spacer()
-            Text("Pick a window → Start Overlay. Toggle ‘Edit crop’ to drag a crop on the floating window.")
+            Text("Start Overlay → toggle ‘Edit crop’ to draw. Use Confirm/Cancel to apply or discard.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -104,7 +118,7 @@ struct ContentView: View {
         .task { await model.refreshShareableContent() }
         .onDisappear { Task { await stopOverlay() } }
 
-        // First frame: clear temp tint, size panel nicely
+        // First frame: clear temp tint & size panel nicely
         .onChange(of: capture.latestImage) { _, img in
             if img != nil {
                 overlayWindow?.backgroundColor = .clear
@@ -112,13 +126,16 @@ struct ContentView: View {
             }
         }
 
-        // While editing: make the panel key, accept mouse; otherwise restore prefs
+        // Enter/exit edit mode behavior
         .onChange(of: isEditingCrop) { _, editing in
             if editing {
+                // Start from current applied crop
+                draftCrop = capture.cropRect
+
                 overlayWindow?.orderFrontRegardless()
-                overlayWindow?.makeKeyAndOrderFront(nil)
+                overlayWindow?.makeKeyAndOrderFront(nil)        // receive drags
                 overlayWindow?.isMovableByWindowBackground = false
-                overlayWindow?.setClickThrough(false)
+                overlayWindow?.setClickThrough(false)            // must accept mouse while editing
             } else {
                 overlayWindow?.orderFrontRegardless()
                 overlayWindow?.isMovableByWindowBackground = true
@@ -131,7 +148,7 @@ struct ContentView: View {
 
     private func startOverlay() async {
         guard let w = model.selectedWindow else { return }
-        resetCrop()                               // start fresh
+        resetCrop()                               // fresh start
         await capture.start(window: w, scale: 1.0)
         ensureOverlay()
         isOverlayRunning = true
@@ -139,7 +156,7 @@ struct ContentView: View {
 
     private func stopOverlay() async {
         isEditingCrop = false
-        resetCrop()                               // next start is clean
+        resetCrop()                               // next start is full window
         await capture.stop()
         if let win = overlayWindow {
             win.orderOut(nil)
@@ -150,7 +167,7 @@ struct ContentView: View {
     }
 
     private func restartOverlay(on window: SCWindow) async {
-        resetCrop()                               // change source → clear crop
+        resetCrop()
         await capture.start(window: window, scale: 1.0)
         ensureOverlay()
         isOverlayRunning = true
@@ -162,15 +179,15 @@ struct ContentView: View {
         if overlayWindow == nil {
             let window = OverlayWindow()
 
-            // The overlay view observes `capture` directly.
+            // The overlay view observes `capture` directly, but binds to DRAFT crop.
             let hosting = NSHostingView(rootView:
                 OverlayView(
                     capture: capture,
                     showGuides: $showGuides,
                     isEditingCrop: $isEditingCrop,
                     cropInSourcePx: Binding(
-                        get: { capture.cropRect },
-                        set: { capture.cropRect = $0 }
+                        get: { draftCrop },          // ← edit into the draft
+                        set: { draftCrop = $0 }
                     )
                 )
                 .frame(minWidth: 240, minHeight: 160)
@@ -208,9 +225,22 @@ struct ContentView: View {
 
     // MARK: - Actions
 
+    /// Apply the draft crop to the live stream and exit edit mode.
+    private func applyDraftCrop() {
+        capture.cropRect = draftCrop            // ← live now
+        isEditingCrop = false
+    }
+
+    /// Discard draft and exit edit mode (live crop unchanged).
+    private func cancelDraftCrop() {
+        draftCrop = nil
+        isEditingCrop = false
+    }
+
+    /// Return to full-window view (both live & draft).
     private func resetCrop() {
-        isEditingCrop = false         // hide selection UI
-        capture.cropRect = nil        // full-window view
+        draftCrop = nil
+        capture.cropRect = nil
     }
 }
 
