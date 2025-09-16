@@ -230,28 +230,29 @@ struct CropOverlay: View {
                height: abs(a.y - b.y))
     }
 
-    // Mapping: source <-> display (Y flipped)
+    // Mapping: source <-> display (NO Y-FLIP)
+
     private var scale: CGFloat {
         min(displayedImageSize.width / sourceImageSize.width,
             displayedImageSize.height / sourceImageSize.height)
     }
 
+    /// Source (pixels, top-left origin) -> Display (points)
     private func sourceToDisplay(_ src: CGRect?) -> CGRect? {
         guard let src = src else { return nil }
-        let dispX = displayedImageOrigin.x + src.origin.x * scale
-        let dispY = displayedImageOrigin.y
-            + (sourceImageSize.height - (src.origin.y + src.height)) * scale
-        return CGRect(x: dispX, y: dispY,
-                      width: src.width * scale, height: src.height * scale)
+        let x = displayedImageOrigin.x + src.origin.x * scale
+        let y = displayedImageOrigin.y + src.origin.y * scale
+        return CGRect(x: x, y: y,
+                      width: src.width * scale,
+                      height: src.height * scale)
     }
 
+    /// Display (points, top-left origin) -> Source (pixels)
     private func displayToSource(_ disp: CGRect) -> CGRect {
         let x = max(0, (disp.origin.x - displayedImageOrigin.x) / scale)
-        let yTopFromDisplayTop = (disp.origin.y - displayedImageOrigin.y) / scale
-        let heightPx = disp.height / scale
-        let y = max(0, sourceImageSize.height - yTopFromDisplayTop - heightPx)
-        let w = min(sourceImageSize.width  - x, disp.width  / scale)
-        let h = min(sourceImageSize.height - y, heightPx)
+        let y = max(0, (disp.origin.y - displayedImageOrigin.y) / scale)
+        let w = min(sourceImageSize.width  - x,  disp.width  / scale)
+        let h = min(sourceImageSize.height - y,  disp.height / scale)
         return CGRect(x: floor(x), y: floor(y), width: floor(w), height: floor(h))
     }
 

@@ -23,7 +23,6 @@ struct ContentView: View {
                 Spacer()
             }
 
-            // Window picker
             Picker("Select a window:", selection: $model.selectedWindow) {
                 Text("— none —").tag(SCWindow?.none)
                 ForEach(model.windows, id: \.self) { w in
@@ -32,7 +31,6 @@ struct ContentView: View {
                 }
             }
             .onChange(of: model.selectedWindow) { _, newValue in
-                // If the overlay is running and you pick a different window, restart onto it.
                 guard isOverlayRunning, let w = newValue else { return }
                 Task { await restartOverlay(on: w) }
             }
@@ -43,9 +41,7 @@ struct ContentView: View {
                         .onChange(of: clickThrough) { _, on in
                             if !isEditingCrop { overlayWindow?.setClickThrough(on) }
                         }
-
                     Toggle("Show guides", isOn: $showGuides)
-
                     Toggle("Edit crop", isOn: $isEditingCrop)
 
                     HStack(spacing: 8) {
@@ -64,7 +60,6 @@ struct ContentView: View {
 
                     Spacer()
 
-                    // Start / Stop + Focus
                     if isOverlayRunning {
                         Button(role: .destructive, action: { Task { await stopOverlay() } }) {
                             Text("Stop Overlay")
@@ -78,7 +73,6 @@ struct ContentView: View {
                 }
             }
 
-            // Inline sanity-check preview (live feed)
             if let img = capture.latestImage {
                 Image(decorative: img, scale: 1.0, orientation: .up)
                     .resizable()
@@ -100,16 +94,12 @@ struct ContentView: View {
         .padding(16)
         .task { await model.refreshShareableContent() }
         .onDisappear { Task { await stopOverlay() } }
-
-        // Clear the temp tint and keep size sane when the first frame arrives.
         .onChange(of: capture.latestImage) { _, img in
             if img != nil {
                 overlayWindow?.backgroundColor = .clear
                 applyOverlaySize()
             }
         }
-
-        // While editing: make the panel key, accept mouse; otherwise restore your prefs.
         .onChange(of: isEditingCrop) { _, editing in
             if editing {
                 overlayWindow?.orderFrontRegardless()
@@ -128,15 +118,15 @@ struct ContentView: View {
 
     private func startOverlay() async {
         guard let w = model.selectedWindow else { return }
+        capture.cropRect = nil              // ✅ reset crop
         await capture.start(window: w, scale: 1.0)
         ensureOverlay()
         isOverlayRunning = true
     }
 
     private func stopOverlay() async {
-        // Exit edit mode so gestures/flags reset
         isEditingCrop = false
-
+        capture.cropRect = nil              // ✅ reset crop
         await capture.stop()
         if let win = overlayWindow {
             win.orderOut(nil)
@@ -147,6 +137,7 @@ struct ContentView: View {
     }
 
     private func restartOverlay(on window: SCWindow) async {
+        capture.cropRect = nil              // ✅ reset crop
         await capture.start(window: window, scale: 1.0)
         ensureOverlay()
         isOverlayRunning = true
@@ -157,8 +148,6 @@ struct ContentView: View {
     private func ensureOverlay() {
         if overlayWindow == nil {
             let window = OverlayWindow()
-
-            // The overlay view observes `capture` directly.
             let hosting = NSHostingView(rootView:
                 OverlayView(
                     capture: capture,
@@ -177,10 +166,8 @@ struct ContentView: View {
             window.setOpacity(overlayOpacity)
             window.setClickThrough(isEditingCrop ? false : clickThrough)
 
-            // TEMP tint so you can see it before frames arrive
             window.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.25)
             window.isOpaque = false
-
             window.orderFrontRegardless()
             overlayWindow = window
 
@@ -190,7 +177,6 @@ struct ContentView: View {
         }
     }
 
-    /// Resize the floating panel while preserving aspect.
     private func applyOverlaySize() {
         guard let window = overlayWindow else { return }
         let baseW = Double(capture.latestImage?.width  ?? 640)
