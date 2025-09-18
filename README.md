@@ -46,3 +46,7 @@ Grant via: System Settings → Privacy & Security → Screen Recording → enabl
 6.	Use Opacity and Scale to adjust appearance.
 7.	Toggle Click-through to let clicks pass to apps underneath.
 8.	Stop Overlay to close and reset; select a different window and start again.
+
+## Limitations
+- Will not overlay a full screen app, only windowed apps
+- With some apps, if using another window of that app at the same time, the overlay will pause (e.g., Chrome doesn't render background windows to save memory)
