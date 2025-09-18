@@ -11,7 +11,7 @@ struct ContentView: View {
     @State private var overlayScale: Double = 1.0
     @State private var clickThrough = false
     @State private var showGuides = false
-    @State private var forceTopmost = false
+    @State private var pinOnTop = true
 
     // Edit/apply flow
     @State private var isEditingCrop = false
@@ -53,9 +53,9 @@ struct ContentView: View {
                     // Edit toggle
                     Toggle("Edit crop", isOn: $isEditingCrop)
                     
-                    // Pin over full screen toggle - NOT CURRENTLY WORKING
-                    Toggle("Pin over full-screen", isOn: $forceTopmost)
-                        .onChange(of: forceTopmost) { _, on in overlayWindow?.setForceTopmost(on) }
+                    // Pin on top of other windows
+                    Toggle("Pin on top", isOn: $pinOnTop)
+                        .onChange(of: pinOnTop) { _, on in overlayWindow?.setPinnedOnTop(on) }
 
                     // Confirm / Cancel appear only while editing
                     if isEditingCrop {
@@ -210,7 +210,7 @@ struct ContentView: View {
 
             window.orderFrontRegardless()
             overlayWindow = window
-            overlayWindow?.setForceTopmost(forceTopmost)
+            overlayWindow?.setPinnedOnTop(pinOnTop)
 
             applyOverlaySize()
         } else {
