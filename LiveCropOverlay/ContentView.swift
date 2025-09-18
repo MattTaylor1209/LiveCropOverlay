@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var overlayScale: Double = 1.0
     @State private var clickThrough = false
     @State private var showGuides = false
+    @State private var forceTopmost = false
 
     // Edit/apply flow
     @State private var isEditingCrop = false
@@ -45,11 +46,16 @@ struct ContentView: View {
                         .onChange(of: clickThrough) { _, on in
                             if !isEditingCrop { overlayWindow?.setClickThrough(on) }
                         }
-
+                    
+                    // Guides toggle
                     Toggle("Show guides", isOn: $showGuides)
 
                     // Edit toggle
                     Toggle("Edit crop", isOn: $isEditingCrop)
+                    
+                    // Pin over full screen toggle - NOT CURRENTLY WORKING
+                    Toggle("Pin over full-screen", isOn: $forceTopmost)
+                        .onChange(of: forceTopmost) { _, on in overlayWindow?.setForceTopmost(on) }
 
                     // Confirm / Cancel appear only while editing
                     if isEditingCrop {
@@ -178,7 +184,7 @@ struct ContentView: View {
     private func ensureOverlay() {
         if overlayWindow == nil {
             let window = OverlayWindow()
-
+            
             // The overlay view observes `capture` directly, but binds to DRAFT crop.
             let hosting = NSHostingView(rootView:
                 OverlayView(
@@ -204,6 +210,7 @@ struct ContentView: View {
 
             window.orderFrontRegardless()
             overlayWindow = window
+            overlayWindow?.setForceTopmost(forceTopmost)
 
             applyOverlaySize()
         } else {

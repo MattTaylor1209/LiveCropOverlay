@@ -29,4 +29,15 @@ final class OverlayWindow: NSPanel {
 
     func setClickThrough(_ enabled: Bool) { ignoresMouseEvents = enabled }
     func setOpacity(_ alpha: CGFloat)     { alphaValue = max(0.1, min(alpha, 1.0)) }
+    
+    func setForceTopmost(_ on: Bool) {
+            level = on ? .screenSaver : .floating   // .screenSaver is the highest public level
+            collectionBehavior = [
+                .canJoinAllSpaces,     // show in all Spaces
+                //.stationary,           // don't move with Spaces
+                .ignoresCycle,         // avoid normal window cycling
+                .fullScreenAuxiliary   // be allowed alongside full-screen
+            ]
+            orderFrontRegardless()
+        }
 }
